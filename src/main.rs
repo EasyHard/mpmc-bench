@@ -34,9 +34,14 @@ fn main() {
         .parse()
         .expect("Failed to parse seconds");
 
-    let bandwidth = single_mpmc(producer_count, consumer_count, seconds);
-    println!("Bandwidth: {} msgs/second", 
-        bandwidth);
+    for p in 1..producer_count+1 {
+        print!("p{}: ", p);
+        for c in 1..consumer_count+1 {
+            let bandwidth = single_mpmc(p, c, seconds);
+            print!("{} ", bandwidth);
+        }
+        println!(""); // newline
+    }
 }
 
 fn producer(tx: channel::Sender<String>, id: usize, should_exit: Arc<AtomicBool>) {
@@ -49,10 +54,10 @@ fn producer(tx: channel::Sender<String>, id: usize, should_exit: Arc<AtomicBool>
         let len: usize = rng.gen_range(100..1000);
         let msg = "a".repeat(len);
         // exit if send returns Err
-        if let Err(_) = tx.send(msg) {
+        if let Err(_) = tx.send_timeout(msg, Duration::from_millis(10)) {
             break;
         }
-        debug_println!("Producer {} sent a message.", id);
+        //debug_println!("Producer {} sent a message.", id);
         msg_count += 1;
     }
 }
@@ -64,14 +69,18 @@ fn consumer(rx: channel::Receiver<String>, id: usize, counter: Arc<AtomicUsize>,
         if local_count % 10 == 0 && should_exit.load(Ordering::Relaxed) {
             break;
         }
-        match rx.recv() {
+        match rx.recv_timeout(Duration::from_millis(10)) {
             Ok(s) => {
                 local_count += 1;
                 total_length += s.len();
-                debug_println!("Consumer {} received a message.", id);
+                //debug_println!("Consumer {} received a message.", id);
+            },
+            Err(channel::RecvTimeoutError::Timeout) => {
+                if should_exit.load(Ordering::Relaxed) {
+                    break;
+                }
             },
             Err(_) => {
-                debug_println!("Error receiving from channel or channel has been closed.");
                 break;
             }
         }
